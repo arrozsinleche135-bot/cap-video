@@ -78,7 +78,7 @@ export default async function saveAdminSnapshot(request) {
           code: 'SUPABASE_SCHEMA_MISSING',
         }, 503)
       }
-      if (error.code === '40001' || error.message === 'STALE_SNAPSHOT') {
+      if (error.code === 'VH001' || error.message === 'STALE_SNAPSHOT') {
         return jsonResponse({
           error: 'Supabase tiene cambios más recientes. Recarga antes de volver a editar.',
           code: 'STALE_SNAPSHOT',
