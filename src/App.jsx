@@ -292,14 +292,23 @@ function App() {
       if (event === 'SIGNED_OUT') {
         clearAuthenticatedState()
       } else if (nextSession && ['SIGNED_IN', 'TOKEN_REFRESHED', 'USER_UPDATED'].includes(event)) {
-        setSession(nextSession)
-        if (
-          event === 'SIGNED_IN'
-          && !loginInProgressRef.current
-          && nextSession.user?.id !== sessionUserIdRef.current
-        ) {
-          window.setTimeout(() => hydrateSession(nextSession).catch(() => undefined), 0)
+        if (event === 'SIGNED_IN') {
+          // setSession() emite SIGNED_IN antes de que loginWithCredentials
+          // termine de validar el contexto y cargar los datos. Durante ese
+          // acceso controlado, hydrateSession es la única operación que debe
+          // publicar la sesión; hacerlo aquí desmontaba el formulario en el
+          // primer intento y dejaba la interfaz en un estado intermedio.
+          if (loginInProgressRef.current) return
+
+          if (nextSession.user?.id !== sessionUserIdRef.current) {
+            window.setTimeout(() => hydrateSession(nextSession).catch(() => undefined), 0)
+          } else {
+            setSession(nextSession)
+          }
+          return
         }
+
+        setSession(nextSession)
       }
     })
 
