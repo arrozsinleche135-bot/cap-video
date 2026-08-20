@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ArrowLeft,
   ArrowRight,
@@ -873,6 +874,7 @@ function AdminApp({
 }) {
   const [page, setPage] = useState('overview')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   const navigate = (nextPage) => {
     setPage(nextPage)
@@ -904,21 +906,31 @@ function AdminApp({
   }
 
   return (
-    <div className={`app-layout ${loggingOut ? 'app-layout--busy' : ''}`}>
+    <div className={`app-layout ${sidebarCollapsed ? 'app-layout--sidebar-collapsed' : ''} ${loggingOut ? 'app-layout--busy' : ''}`}>
       {loggingOut && <div className="app-saving-overlay"><span className="loading-spinner" /><strong>Guardando y cerrando sesión…</strong></div>}
       <button className={`mobile-overlay ${menuOpen ? 'is-visible' : ''}`} onClick={() => setMenuOpen(false)} aria-label="Cerrar menú" />
-      <aside className={`sidebar admin-sidebar ${menuOpen ? 'is-open' : ''}`}>
+      <aside className={`sidebar admin-sidebar ${sidebarCollapsed && !menuOpen ? 'sidebar--collapsed' : ''} ${menuOpen ? 'is-open' : ''}`}>
         <div className="sidebar__top">
           <CompanyLogo compact />
           <button className="sidebar-close" onClick={() => setMenuOpen(false)}><X size={20} /></button>
         </div>
+        <button
+          type="button"
+          className="sidebar-collapse"
+          onClick={() => setSidebarCollapsed((value) => !value)}
+          aria-label={sidebarCollapsed ? 'Expandir barra lateral' : 'Contraer barra lateral'}
+          aria-expanded={!sidebarCollapsed}
+          title={sidebarCollapsed ? 'Expandir barra lateral' : 'Contraer barra lateral'}
+        >
+          {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        </button>
         <div className="role-pill"><span>AD</span><div><strong>Administrador</strong><small>Control total</small></div></div>
         <nav className="sidebar-nav" aria-label="Administración">
           <small className="sidebar-label">GESTIÓN</small>
           {ADMIN_NAV.map((item) => {
             const Icon = item.icon
             return (
-              <button className={page === item.id ? 'active' : ''} key={item.id} onClick={() => navigate(item.id)}>
+              <button className={page === item.id ? 'active' : ''} key={item.id} onClick={() => navigate(item.id)} title={sidebarCollapsed ? item.label : undefined}>
                 <Icon size={19} /><span>{item.label}</span>{page === item.id && <ChevronRight className="nav-chevron" size={15} />}
               </button>
             )
@@ -926,7 +938,7 @@ function AdminApp({
         </nav>
         <div className="sidebar__bottom">
           <ThemeToggle theme={theme} onToggle={toggleTheme} />
-          <button className="sidebar-action" onClick={onLogout} disabled={loggingOut}><LogOut size={18} /><span>{loggingOut ? 'Guardando…' : 'Cerrar sesión'}</span></button>
+          <button className="sidebar-action" onClick={onLogout} disabled={loggingOut} title={sidebarCollapsed ? 'Cerrar sesión' : undefined}><LogOut size={18} /><span>{loggingOut ? 'Guardando…' : 'Cerrar sesión'}</span></button>
         </div>
       </aside>
 
@@ -2046,6 +2058,7 @@ function AttemptPhotoPreview({ photoPath, attemptNumber }) {
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(Boolean(photoPath))
   const [error, setError] = useState('')
+  const [expanded, setExpanded] = useState(false)
 
   const loadPhoto = useCallback(async () => {
     if (!photoPath) return
@@ -2062,19 +2075,46 @@ function AttemptPhotoPreview({ photoPath, attemptNumber }) {
 
   useEffect(() => { loadPhoto() }, [loadPhoto])
 
+  useEffect(() => {
+    if (!expanded) return undefined
+    const previousOverflow = document.body.style.overflow
+    const closeOnEscape = (event) => { if (event.key === 'Escape') setExpanded(false) }
+    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [expanded])
+
   return (
-    <aside className="quiz-attempt-photo">
-      <div className="quiz-attempt-photo__head"><Camera size={14} /><span>Foto del intento</span></div>
-      {!photoPath && <div className="quiz-attempt-photo__empty"><ImageIcon size={24} /><span>Este intento no tiene foto registrada.</span></div>}
-      {photoPath && loading && <div className="quiz-attempt-photo__empty"><span className="loading-spinner" /><span>Cargando foto…</span></div>}
-      {photoPath && !loading && url && (
-        <a href={url} target="_blank" rel="noreferrer" title="Abrir foto en tamaño completo">
-          <img src={url} alt={`Foto tomada en el intento ${attemptNumber}`} loading="lazy" />
-          <span>Ver imagen completa</span>
-        </a>
+    <>
+      <aside className="quiz-attempt-photo">
+        <div className="quiz-attempt-photo__head"><Camera size={14} /><span>Foto del intento</span></div>
+        {!photoPath && <div className="quiz-attempt-photo__empty"><ImageIcon size={24} /><span>Este intento no tiene foto registrada.</span></div>}
+        {photoPath && loading && <div className="quiz-attempt-photo__empty"><span className="loading-spinner" /><span>Cargando foto…</span></div>}
+        {photoPath && !loading && url && (
+          <button type="button" className="quiz-attempt-photo__open" onClick={() => setExpanded(true)} title="Ampliar foto">
+            <img src={url} alt={`Foto tomada en el intento ${attemptNumber}`} loading="lazy" />
+            <span><Eye size={13} /> Ampliar imagen</span>
+          </button>
+        )}
+        {error && <div className="quiz-attempt-photo__empty is-error"><CircleAlert size={20} /><span>{error}</span><button type="button" onClick={loadPhoto}>Reintentar</button></div>}
+      </aside>
+      {expanded && createPortal(
+        <div className="attempt-lightbox" role="dialog" aria-modal="true" aria-label={`Foto ampliada del intento ${attemptNumber}`} onClick={() => setExpanded(false)}>
+          <div className="attempt-lightbox__content" onClick={(event) => event.stopPropagation()}>
+            <div className="attempt-lightbox__head">
+              <div><Camera size={16} /><span>Foto del intento {attemptNumber}</span></div>
+              <button type="button" onClick={() => setExpanded(false)} aria-label="Cerrar imagen ampliada"><X size={20} /></button>
+            </div>
+            <img src={url} alt={`Foto ampliada tomada en el intento ${attemptNumber}`} />
+            <small>Presiona Esc o haz clic fuera de la imagen para cerrar.</small>
+          </div>
+        </div>,
+        document.body,
       )}
-      {error && <div className="quiz-attempt-photo__empty is-error"><CircleAlert size={20} /><span>{error}</span><button type="button" onClick={loadPhoto}>Reintentar</button></div>}
-    </aside>
+    </>
   )
 }
 
@@ -2182,6 +2222,7 @@ function ViewerApp({ role, userId, data, theme, toggleTheme, onLogout }) {
   const [selectedVideo, setSelectedVideo] = useState(null)
   const [query, setQuery] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   useEffect(() => {
     if (!selectedVideo) return
@@ -2215,18 +2256,28 @@ function ViewerApp({ role, userId, data, theme, toggleTheme, onLogout }) {
   const lockedCount = targetedVideos.filter((video) => isVideoLockedFor(video, role)).length
 
   return (
-    <div className="app-layout viewer-layout">
+    <div className={`app-layout viewer-layout ${sidebarCollapsed ? 'app-layout--sidebar-collapsed' : ''}`}>
       <button className={`mobile-overlay ${menuOpen ? 'is-visible' : ''}`} onClick={() => setMenuOpen(false)} aria-label="Cerrar menú" />
-      <aside className={`sidebar viewer-sidebar ${menuOpen ? 'is-open' : ''}`}>
+      <aside className={`sidebar viewer-sidebar ${sidebarCollapsed && !menuOpen ? 'sidebar--collapsed' : ''} ${menuOpen ? 'is-open' : ''}`}>
         <div className="sidebar__top"><CompanyLogo compact /><button className="sidebar-close" onClick={() => setMenuOpen(false)}><X size={20} /></button></div>
+        <button
+          type="button"
+          className="sidebar-collapse"
+          onClick={() => setSidebarCollapsed((value) => !value)}
+          aria-label={sidebarCollapsed ? 'Expandir barra lateral' : 'Contraer barra lateral'}
+          aria-expanded={!sidebarCollapsed}
+          title={sidebarCollapsed ? 'Expandir barra lateral' : 'Contraer barra lateral'}
+        >
+          {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        </button>
         <nav className="sidebar-nav viewer-nav">
           <small className="sidebar-label">EXPLORAR</small>
-          <button className={activeSection === 'home' ? 'active' : ''} onClick={() => navigate('home')}><Home size={19} /><span>Inicio</span></button>
+          <button className={activeSection === 'home' ? 'active' : ''} onClick={() => navigate('home')} title={sidebarCollapsed ? 'Inicio' : undefined}><Home size={19} /><span>Inicio</span></button>
           <small className="sidebar-label sidebar-label--spaced">MI CONTENIDO</small>
-          {sections.map((section) => { const Icon = ICONS[section.icon] || Layers3; return <button className={activeSection === section.id ? 'active' : ''} onClick={() => navigate(section.id)} key={section.id}><Icon size={19} /><span>{section.name}</span><small>{targetedVideos.filter((video) => video.assignments[role] === section.id).length}</small></button> })}
+          {sections.map((section) => { const Icon = ICONS[section.icon] || Layers3; return <button className={activeSection === section.id ? 'active' : ''} onClick={() => navigate(section.id)} title={sidebarCollapsed ? section.name : undefined} key={section.id}><Icon size={19} /><span>{section.name}</span><small>{targetedVideos.filter((video) => video.assignments[role] === section.id).length}</small></button> })}
         </nav>
         <div className="sidebar-help"><span><CircleHelp size={17} /></span><div><strong>¿Necesitas ayuda?</strong><small>{data.settings?.supportMessage || 'Contacta a tu administrador'}</small></div></div>
-        <div className="sidebar__bottom">{data.settings?.allowLightMode !== false && <ThemeToggle theme={theme} onToggle={toggleTheme} />}<button className="sidebar-action" onClick={onLogout}><LogOut size={18} /><span>Cerrar sesión</span></button></div>
+        <div className="sidebar__bottom">{data.settings?.allowLightMode !== false && <ThemeToggle theme={theme} onToggle={toggleTheme} />}<button className="sidebar-action" onClick={onLogout} title={sidebarCollapsed ? 'Cerrar sesión' : undefined}><LogOut size={18} /><span>Cerrar sesión</span></button></div>
       </aside>
 
       <section className="main-shell viewer-main">
