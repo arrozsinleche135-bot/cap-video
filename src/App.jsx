@@ -1889,6 +1889,40 @@ function VideoActivityChart({ stats }) {
 }
 
 function UserActivityModal({ user, videos, watchedVideoIds, quizResults, quizAttempts, attemptsLoading, onClose }) {
+  const [quizDefinitions, setQuizDefinitions] = useState(new Map())
+  const [quizDefinitionsLoading, setQuizDefinitionsLoading] = useState(false)
+  const [quizDefinitionsError, setQuizDefinitionsError] = useState('')
+  const quizVideoIdsKey = videos.filter((video) => video.quiz).map((video) => video.id).sort().join(',')
+
+  useEffect(() => {
+    let active = true
+    const videoIds = quizVideoIdsKey ? quizVideoIdsKey.split(',') : []
+    setQuizDefinitions(new Map())
+    setQuizDefinitionsError('')
+
+    if (!videoIds.length) {
+      setQuizDefinitionsLoading(false)
+      return () => { active = false }
+    }
+
+    setQuizDefinitionsLoading(true)
+    Promise.allSettled(videoIds.map(async (videoId) => [videoId, await getAdminVideoQuiz(videoId)]))
+      .then((results) => {
+        if (!active) return
+        const definitions = new Map()
+        let failedCount = 0
+        results.forEach((result) => {
+          if (result.status === 'fulfilled' && result.value[1]) definitions.set(...result.value)
+          else if (result.status === 'rejected') failedCount += 1
+        })
+        setQuizDefinitions(definitions)
+        if (failedCount) setQuizDefinitionsError('No se pudieron recuperar todas las alternativas actuales. Se muestran los datos conservados en cada intento.')
+      })
+      .finally(() => { if (active) setQuizDefinitionsLoading(false) })
+
+    return () => { active = false }
+  }, [quizVideoIdsKey])
+
   const attemptsByVideo = useMemo(() => {
     const map = new Map()
     quizAttempts.forEach((attempt) => {
@@ -1915,6 +1949,7 @@ function UserActivityModal({ user, videos, watchedVideoIds, quizResults, quizAtt
           <button type="button" className="icon-button" onClick={onClose} aria-label="Cerrar"><X size={18} /></button>
         </div>
         <div className="modal-panel__body">
+          {quizDefinitionsError && <p className="quiz-attempt-notice"><CircleAlert size={14} /> {quizDefinitionsError}</p>}
           {!videos.length && <p className="quiz-empty">No tiene videos asignados.</p>}
           {videos.map((video) => {
             const watched = watchedVideoIds.has(video.id)
@@ -1935,7 +1970,7 @@ function UserActivityModal({ user, videos, watchedVideoIds, quizResults, quizAtt
                     )}
                   </div>
                 </div>
-                {video.quiz && attemptsLoading && <p className="quiz-attempt-loading">Cargando intentos…</p>}
+                {video.quiz && (attemptsLoading || quizDefinitionsLoading) && <p className="quiz-attempt-loading">Cargando detalle de intentos…</p>}
                 {video.quiz && !attemptsLoading && attempts.map((attempt) => (
                   <details className="quiz-attempt" key={attempt.id}>
                     <summary>
@@ -1943,18 +1978,39 @@ function UserActivityModal({ user, videos, watchedVideoIds, quizResults, quizAtt
                       <span className={`quiz-attempt__score ${attempt.passed ? 'quiz-attempt__score--passed' : 'quiz-attempt__score--failed'}`}>{attempt.scorePercent}% · {attempt.passed ? 'Aprobado' : 'No aprobado'}</span>
                       <span className="quiz-attempt__date">{new Date(attempt.createdAt).toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</span>
                     </summary>
-                    {attempt.photoPath && <AttemptPhotoLink photoPath={attempt.photoPath} />}
-                    <ul className="quiz-attempt__answers">
-                      {attempt.answers.map((answer, index) => (
-                        <li className={answer.isCorrect ? 'is-correct' : 'is-incorrect'} key={answer.questionId || index}>
-                          <span className="quiz-attempt__icon">{answer.isCorrect ? <CircleCheck size={13} /> : <CircleAlert size={13} />}</span>
-                          <div>
-                            <strong>{answer.prompt}</strong>
-                            <p>Marcó: {answer.selectedLabel || 'Sin respuesta'}{!answer.isCorrect && answer.correctLabel ? ` · Correcta: ${answer.correctLabel}` : ''}</p>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
+                    <div className="quiz-attempt__content">
+                      <AttemptPhotoPreview photoPath={attempt.photoPath} attemptNumber={attempt.attemptNumber} />
+                      <div className="quiz-attempt__answers">
+                        {attempt.answers.map((answer, index) => {
+                          const question = quizDefinitions.get(video.id)?.questions?.find((item) => item.id === answer.questionId)
+                          const options = buildAttemptOptions(answer, question)
+                          return (
+                            <article className={`quiz-attempt-question ${answer.isCorrect ? 'is-correct' : 'is-incorrect'}`} key={answer.questionId || index}>
+                              <div className="quiz-attempt-question__head">
+                                <span>Pregunta {index + 1}</span>
+                                <span>{answer.isCorrect ? <><CircleCheck size={12} /> Correcta</> : <><CircleAlert size={12} /> Incorrecta</>}</span>
+                              </div>
+                              <strong>{answer.prompt}</strong>
+                              <div className="quiz-attempt-options">
+                                {options.map((option) => (
+                                  <div
+                                    className={`quiz-attempt-option ${option.selected ? 'is-selected' : ''} ${option.correct ? 'is-correct-answer' : ''} ${option.selected && !option.correct ? 'is-selected-wrong' : ''}`}
+                                    key={option.id}
+                                  >
+                                    <span className="quiz-attempt-option__marker">{option.selected ? <Check size={12} /> : null}</span>
+                                    <span>{option.label}</span>
+                                    <span className="quiz-attempt-option__badges">
+                                      {option.selected && <small>Marcada por el usuario</small>}
+                                      {option.correct && <small>Respuesta correcta</small>}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </article>
+                          )
+                        })}
+                      </div>
+                    </div>
                   </details>
                 ))}
               </div>
@@ -1966,30 +2022,59 @@ function UserActivityModal({ user, videos, watchedVideoIds, quizResults, quizAtt
   )
 }
 
-function AttemptPhotoLink({ photoPath }) {
-  const [loading, setLoading] = useState(false)
+function buildAttemptOptions(answer, question) {
+  const options = (question?.options || []).map((option) => ({
+    id: option.id,
+    label: option.label,
+    selected: option.id === answer.selectedOptionId || (!answer.selectedOptionId && option.label === answer.selectedLabel),
+    correct: Boolean(option.isCorrect) || option.label === answer.correctLabel,
+  }))
+
+  if (answer.selectedLabel && !options.some((option) => option.selected)) {
+    options.push({ id: `selected-${answer.questionId}`, label: answer.selectedLabel, selected: true, correct: answer.isCorrect })
+  }
+  if (answer.correctLabel && !options.some((option) => option.correct)) {
+    const matchingOption = options.find((option) => option.label === answer.correctLabel)
+    if (matchingOption) matchingOption.correct = true
+    else options.push({ id: `correct-${answer.questionId}`, label: answer.correctLabel, selected: false, correct: true })
+  }
+
+  return options
+}
+
+function AttemptPhotoPreview({ photoPath, attemptNumber }) {
+  const [url, setUrl] = useState('')
+  const [loading, setLoading] = useState(Boolean(photoPath))
   const [error, setError] = useState('')
 
-  const openPhoto = async () => {
+  const loadPhoto = useCallback(async () => {
+    if (!photoPath) return
     setLoading(true)
     setError('')
     try {
-      const url = await getQuizAttemptPhotoUrl(photoPath)
-      if (url) window.open(url, '_blank', 'noopener,noreferrer')
+      setUrl(await getQuizAttemptPhotoUrl(photoPath))
     } catch (photoError) {
-      setError(getErrorMessage(photoError, 'No se pudo abrir la foto.'))
+      setError(getErrorMessage(photoError, 'No se pudo cargar la foto.'))
     } finally {
       setLoading(false)
     }
-  }
+  }, [photoPath])
+
+  useEffect(() => { loadPhoto() }, [loadPhoto])
 
   return (
-    <div className="quiz-attempt__photo">
-      <button type="button" className="text-button" onClick={openPhoto} disabled={loading}>
-        <Camera size={13} /> {loading ? 'Abriendo…' : 'Ver foto del intento'}
-      </button>
-      {error && <span className="form-error">{error}</span>}
-    </div>
+    <aside className="quiz-attempt-photo">
+      <div className="quiz-attempt-photo__head"><Camera size={14} /><span>Foto del intento</span></div>
+      {!photoPath && <div className="quiz-attempt-photo__empty"><ImageIcon size={24} /><span>Este intento no tiene foto registrada.</span></div>}
+      {photoPath && loading && <div className="quiz-attempt-photo__empty"><span className="loading-spinner" /><span>Cargando foto…</span></div>}
+      {photoPath && !loading && url && (
+        <a href={url} target="_blank" rel="noreferrer" title="Abrir foto en tamaño completo">
+          <img src={url} alt={`Foto tomada en el intento ${attemptNumber}`} loading="lazy" />
+          <span>Ver imagen completa</span>
+        </a>
+      )}
+      {error && <div className="quiz-attempt-photo__empty is-error"><CircleAlert size={20} /><span>{error}</span><button type="button" onClick={loadPhoto}>Reintentar</button></div>}
+    </aside>
   )
 }
 

@@ -385,6 +385,7 @@ function mapQuizAttemptRow(row) {
     answers: (row.answers || []).map((answer) => ({
       questionId: answer.questionId,
       prompt: answer.prompt,
+      selectedOptionId: answer.selectedOptionId || null,
       selectedLabel: answer.selectedLabel,
       isCorrect: Boolean(answer.isCorrect),
       correctLabel: answer.correctLabel,
@@ -524,7 +525,7 @@ export async function uploadQuizAttemptPhoto({ organizationId, userId, videoId, 
 /** URL firmada de corta duración para que el admin revise la foto de un intento. */
 export async function getQuizAttemptPhotoUrl(photoPath) {
   if (!photoPath) return ''
-  const { data, error } = await getClient().storage.from(QUIZ_PHOTOS_BUCKET).createSignedUrl(photoPath, 120)
+  const { data, error } = await getClient().storage.from(QUIZ_PHOTOS_BUCKET).createSignedUrl(photoPath, 10 * 60)
   throwDatabaseError(error, 'No se pudo abrir la foto')
   return data?.signedUrl || ''
 }
