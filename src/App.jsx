@@ -291,6 +291,14 @@ function App() {
     const unsubscribe = onAuthStateChange((event, nextSession) => {
       if (!active) return
       if (event === 'SIGNED_OUT') {
+        // Si queda una sesión vieja guardada en el navegador, Supabase intenta
+        // refrescarla sola al cargar la página. Cuando ese refresco de fondo
+        // falla justo mientras loginWithCredentials está estableciendo la
+        // sesión nueva, dispara este mismo evento SIGNED_OUT: sin este guard,
+        // limpiaba el estado recién creado (vía el epoch de hydrateSession) y
+        // el usuario volvía a ver el formulario de acceso en el primer
+        // intento, aunque sus credenciales fueran correctas.
+        if (loginInProgressRef.current) return
         clearAuthenticatedState()
       } else if (nextSession && ['SIGNED_IN', 'TOKEN_REFRESHED', 'USER_UPDATED'].includes(event)) {
         if (event === 'SIGNED_IN') {
