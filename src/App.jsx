@@ -194,6 +194,7 @@ function App() {
   const [saveState, setSaveState] = useState({ status: 'idle', error: '' })
   const [saveRetry, setSaveRetry] = useState(0)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [termsAccepted, setTermsAccepted] = useState(false)
   const loadEpochRef = useRef(0)
   const lastSavedFingerprintRef = useRef('')
   const latestDataRef = useRef(null)
@@ -225,6 +226,7 @@ function App() {
     setSession(null)
     sessionUserIdRef.current = null
     setAccessContext(null)
+    setTermsAccepted(false)
     setData(null)
     latestDataRef.current = null
     persistedVideoIdsRef.current = new Set()
@@ -623,6 +625,19 @@ function App() {
     )
   }
 
+  if (!termsAccepted) {
+    return (
+      <TermsScreen
+        data={data}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        onAccept={() => setTermsAccepted(true)}
+        onDecline={logout}
+        loggingOut={loggingOut}
+      />
+    )
+  }
+
   return (
     <ViewerApp
       role={accessContext.role}
@@ -848,6 +863,65 @@ function LoginScreen({ data, theme, toggleTheme, onLogin, serviceError = '' }) {
 
             <div className="secure-note"><ShieldCheck size={15} /> Acceso seguro y contenido protegido</div>
 
+          </div>
+        </div>
+      </section>
+
+      <footer className="login-footer"><span>© 2026 {data.organization}</span><span>Aprende · Crece · Lidera</span></footer>
+    </main>
+  )
+}
+
+function TermsScreen({ data, theme, toggleTheme, onAccept, onDecline, loggingOut }) {
+  const [checked, setChecked] = useState(false)
+
+  return (
+    <main className="login-page terms-page">
+      <div className="login-page__glow login-page__glow--one" />
+      <div className="login-page__glow login-page__glow--two" />
+      <div className="login-grid" aria-hidden="true" />
+
+      <header className="login-header">
+        <CompanyLogo />
+        <ThemeToggle theme={theme} onToggle={toggleTheme} label={false} />
+      </header>
+
+      <section className="terms-shell">
+        <div className="terms-card">
+          <div className="terms-card__icon"><ClipboardCheck size={23} /></div>
+          <div className="terms-card__heading">
+            <span>ANTES DE CONTINUAR</span>
+            <h1>Términos y condiciones de uso</h1>
+            <p>Para acceder a {data.organization}, lee y acepta las siguientes condiciones de uso de la plataforma.</p>
+          </div>
+
+          <div className="terms-body">
+            <article>
+              <h3><ShieldCheck size={15} /> Uso de la cuenta</h3>
+              <p>El acceso a esta plataforma es personal e intransferible. Eres responsable de mantener la confidencialidad de tu usuario y contraseña, así como de toda actividad realizada desde tu sesión.</p>
+            </article>
+            <article>
+              <h3><Camera size={15} /> Captura de fotografía y datos de actividad</h3>
+              <p>Al aceptar estos términos autorizas a la plataforma a tomar una fotografía mediante la cámara de tu dispositivo cuando se te solicite —por ejemplo, al iniciar un cuestionario o evaluación— con fines de verificación de identidad y control de calidad. Asimismo, autorizas el registro de tu progreso de visualización, tus intentos de evaluación y demás información de uso asociada a tu cuenta.</p>
+            </article>
+            <article>
+              <h3><LockKeyhole size={15} /> Protección de la información</h3>
+              <p>La información recopilada se almacena de forma segura y se utiliza exclusivamente con fines internos de capacitación, seguimiento y control de acceso. Solo el personal administrador autorizado de tu organización puede consultarla; no se comparte con terceros ajenos a ella.</p>
+            </article>
+          </div>
+
+          <label className="terms-check">
+            <input type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} disabled={loggingOut} />
+            <span>He leído y acepto los términos y condiciones descritos anteriormente.</span>
+          </label>
+
+          <div className="terms-actions">
+            <button type="button" className="secondary-button" onClick={onDecline} disabled={loggingOut}>
+              <CircleAlert size={15} /> {loggingOut ? 'Cerrando sesión…' : 'No estoy de acuerdo'}
+            </button>
+            <button type="button" className="primary-button" onClick={onAccept} disabled={!checked || loggingOut}>
+              <Check size={16} /> Acepto los términos
+            </button>
           </div>
         </div>
       </section>
