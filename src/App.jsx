@@ -957,6 +957,16 @@ function AdminApp({
   const [page, setPage] = useState('overview')
   const [menuOpen, setMenuOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [toast, setToast] = useState(null)
+  const toastTimerRef = useRef(null)
+
+  const notify = useCallback((message) => {
+    window.clearTimeout(toastTimerRef.current)
+    setToast({ id: Date.now(), message })
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 3200)
+  }, [])
+
+  useEffect(() => () => window.clearTimeout(toastTimerRef.current), [])
 
   const navigate = (nextPage) => {
     setPage(nextPage)
@@ -975,6 +985,7 @@ function AdminApp({
         return { ...video, assignments, locked }
       }),
     }))
+    notify(`Sección "${sectionName}" eliminada correctamente`)
   }
 
   const titles = {
@@ -989,6 +1000,7 @@ function AdminApp({
 
   return (
     <div className={`app-layout ${sidebarCollapsed ? 'app-layout--sidebar-collapsed' : ''} ${loggingOut ? 'app-layout--busy' : ''}`}>
+      <AdminToast toast={toast} onDismiss={() => setToast(null)} />
       {loggingOut && <div className="app-saving-overlay"><span className="loading-spinner" /><strong>Guardando y cerrando sesión…</strong></div>}
       <button className={`mobile-overlay ${menuOpen ? 'is-visible' : ''}`} onClick={() => setMenuOpen(false)} aria-label="Cerrar menú" />
       <aside className={`sidebar admin-sidebar ${sidebarCollapsed && !menuOpen ? 'sidebar--collapsed' : ''} ${menuOpen ? 'is-open' : ''}`}>
@@ -1046,15 +1058,26 @@ function AdminApp({
             <div><span className="eyebrow eyebrow--plain">PANEL DE CONTROL</span><h1>{titles[page][0]}</h1><p>{titles[page][1]}</p></div>
           </div>
           {page === 'overview' && <AdminOverview data={data} onNavigate={navigate} />}
-          {page === 'sections' && <SectionsManager data={data} setData={setData} onRemove={removeSection} />}
-          {page === 'videos' && <VideosManager data={data} setData={setData} persistedVideoIdsRef={persistedVideoIdsRef} />}
+          {page === 'sections' && <SectionsManager data={data} setData={setData} onRemove={removeSection} onNotify={notify} />}
+          {page === 'videos' && <VideosManager data={data} setData={setData} persistedVideoIdsRef={persistedVideoIdsRef} onNotify={notify} />}
           {page === 'settings' && <SettingsManager data={data} setData={setData} />}
-          {page === 'users' && <UsersManager onCreateUser={onCreateUser} onUpdateUser={onUpdateUser} />}
+          {page === 'users' && <UsersManager onCreateUser={onCreateUser} onUpdateUser={onUpdateUser} onNotify={notify} />}
           {page === 'progress' && <ProgressManager data={data} />}
           {page === 'preview' && <RolePreview data={data} />}
           {saveState.status === 'error' && <div className="save-error-banner"><CircleHelp size={17} /><span>{saveState.error}</span><button type="button" onClick={onRetrySave}>{saveState.code === 'STALE_SNAPSHOT' ? 'Recargar desde Supabase' : 'Reintentar'}</button></div>}
         </main>
       </section>
+    </div>
+  )
+}
+
+function AdminToast({ toast, onDismiss }) {
+  if (!toast) return null
+  return (
+    <div className="admin-toast" key={toast.id} role="status" aria-live="polite">
+      <span className="admin-toast__icon"><CircleCheck size={22} /></span>
+      <strong>{toast.message}</strong>
+      <button type="button" className="admin-toast__close" onClick={onDismiss} aria-label="Cerrar aviso"><X size={15} /></button>
     </div>
   )
 }
@@ -1155,7 +1178,7 @@ function AdminOverview({ data, onNavigate }) {
   )
 }
 
-function SectionsManager({ data, setData, onRemove }) {
+function SectionsManager({ data, setData, onRemove, onNotify }) {
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState({ name: '', icon: 'layers', roles: ['operator'] })
   const [editingId, setEditingId] = useState(null)
@@ -1174,6 +1197,7 @@ function SectionsManager({ data, setData, onRemove }) {
     setData((current) => ({ ...current, sections: [...current.sections, section] }))
     setDraft({ name: '', icon: 'layers', roles: ['operator'] })
     setAdding(false)
+    onNotify?.(`Sección "${section.name}" creada correctamente`)
   }
 
   const toggleRole = (sectionId, role) => {
@@ -1199,6 +1223,7 @@ function SectionsManager({ data, setData, onRemove }) {
   const saveName = (id) => {
     if (editingName.trim()) {
       setData((current) => ({ ...current, sections: current.sections.map((section) => section.id === id ? { ...section, name: editingName.trim() } : section) }))
+      onNotify?.('Sección actualizada correctamente')
     }
     setEditingId(null)
   }
@@ -1260,7 +1285,7 @@ const emptyVideoDraft = {
   bossLocked: false,
 }
 
-function VideosManager({ data, setData, persistedVideoIdsRef }) {
+function VideosManager({ data, setData, persistedVideoIdsRef, onNotify }) {
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [draft, setDraft] = useState(emptyVideoDraft)
@@ -1326,6 +1351,7 @@ function VideosManager({ data, setData, persistedVideoIdsRef }) {
     }
     if (editingId) {
       setData((current) => ({ ...current, videos: current.videos.map((video) => video.id === editingId ? { ...video, ...payload } : video) }))
+      onNotify?.('Video actualizado correctamente')
     } else {
       // Al crear, se queda en modo edición del video recién agregado (en vez
       // de cerrar el formulario) para que se pueda seguir directo con su
@@ -1333,6 +1359,7 @@ function VideosManager({ data, setData, persistedVideoIdsRef }) {
       const newId = crypto.randomUUID()
       setData((current) => ({ ...current, videos: [{ ...payload, id: newId, createdAt: new Date().toISOString() }, ...current.videos] }))
       setEditingId(newId)
+      onNotify?.('Video creado correctamente')
     }
   }
 
@@ -1340,6 +1367,7 @@ function VideosManager({ data, setData, persistedVideoIdsRef }) {
     const videoTitle = data.videos.find((video) => video.id === id)?.title || 'este video'
     if (!window.confirm(`¿Eliminar “${videoTitle}” de Supabase?`)) return
     setData((current) => ({ ...current, videos: current.videos.filter((video) => video.id !== id) }))
+    onNotify?.(`Video "${videoTitle}" eliminado correctamente`)
   }
   const source = getVideoSource(draft.url)
   const filtered = data.videos.filter((video) => video.title.toLowerCase().includes(query.toLowerCase()))
@@ -1458,7 +1486,13 @@ function VideoQuizEditor({ videoId, videoPending }) {
       .catch((quizError) => { if (active) setError(getErrorMessage(quizError, 'No se pudo cargar el cuestionario.')) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [videoId, videoPending])
+    // videoPending se deja fuera a propósito: solo debe decidir si se omite
+    // la carga la primera vez que aparece este videoId (video recién creado,
+    // sin cuestionario posible todavía). Si se re-ejecutara cuando pasa a
+    // "guardado", pisaría con [] las preguntas que el admin ya escribió
+    // mientras esperaba.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoId])
 
   const updateQuestion = (questionId, patch) => {
     setQuestions((current) => current.map((question) => (question.id === questionId ? { ...question, ...patch } : question)))
@@ -1528,17 +1562,6 @@ function VideoQuizEditor({ videoId, videoPending }) {
     }
   }
 
-  if (videoPending) {
-    return (
-      <div className="quiz-panel">
-        <div className="quiz-panel__head">
-          <div><h3>Cuestionario de comprobación</h3><p>Se muestra cuando el usuario termina de ver el video al 100%.</p></div>
-        </div>
-        <div className="quiz-empty"><ClipboardList size={17} /><span>Este video todavía no está guardado en Supabase (revisa el indicador arriba). Espera a que termine, o corrige el error si aparece, antes de agregarle un cuestionario.</span></div>
-      </div>
-    )
-  }
-
   if (loading) return <div className="quiz-panel"><p>Cargando cuestionario…</p></div>
 
   return (
@@ -1548,7 +1571,8 @@ function VideoQuizEditor({ videoId, videoPending }) {
         {hasQuiz && <button type="button" className="icon-button danger" onClick={remove} disabled={saving}><Trash2 size={15} /></button>}
       </div>
 
-      {!questions.length && <div className="quiz-empty"><ClipboardList size={17} /><span>Este video todavía no tiene cuestionario.</span></div>}
+      {videoPending && <div className="quiz-empty"><ClipboardList size={17} /><span>El video se está guardando en Supabase. Ya puedes escribir las preguntas; el botón de guardar se activará en unos segundos.</span></div>}
+      {!videoPending && !questions.length && <div className="quiz-empty"><ClipboardList size={17} /><span>Este video todavía no tiene cuestionario.</span></div>}
 
       {questions.map((question, index) => (
         <div className="quiz-question" key={question.id}>
@@ -1578,7 +1602,17 @@ function VideoQuizEditor({ videoId, videoPending }) {
       {error && <p className="form-error">{error}</p>}
       {savedNote && <p className="quiz-saved-note">{savedNote}</p>}
 
-      <div className="form-actions"><button type="button" className="primary-button" onClick={save} disabled={saving}>{saving ? 'Guardando…' : 'Guardar cuestionario'}</button></div>
+      <div className="form-actions">
+        <button
+          type="button"
+          className="primary-button"
+          onClick={save}
+          disabled={saving || videoPending}
+          title={videoPending ? 'Espera a que el video termine de guardarse en Supabase' : undefined}
+        >
+          {saving ? 'Guardando…' : videoPending ? 'Esperando al video…' : 'Guardar cuestionario'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -1608,7 +1642,7 @@ function AdminVideoCard({ video, data, onEdit, onDelete }) {
 const emptyUserDraft = { username: '', displayName: '', role: 'operator', password: '', jobTitle: '', department: '' }
 const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/
 
-function UsersManager({ onCreateUser, onUpdateUser }) {
+function UsersManager({ onCreateUser, onUpdateUser, onNotify }) {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -1698,6 +1732,7 @@ function UsersManager({ onCreateUser, onUpdateUser }) {
       } else {
         await onCreateUser({ username, password: draft.password, role: draft.role, displayName, jobTitle, department })
       }
+      onNotify?.(editingUser ? 'Usuario actualizado correctamente' : 'Usuario creado correctamente')
       closeForm()
       await refresh()
     } catch (saveError) {
@@ -1710,6 +1745,7 @@ function UsersManager({ onCreateUser, onUpdateUser }) {
   const toggleActive = async (user) => {
     try {
       await onUpdateUser({ userId: user.userId, active: !user.active })
+      onNotify?.(`Usuario ${user.active ? 'desactivado' : 'activado'} correctamente`)
       await refresh()
     } catch (toggleError) {
       setLoadError(getErrorMessage(toggleError, 'No se pudo actualizar el usuario.'))
