@@ -958,15 +958,12 @@ function AdminApp({
   const [menuOpen, setMenuOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [toast, setToast] = useState(null)
-  const toastTimerRef = useRef(null)
 
-  const notify = useCallback((message) => {
-    window.clearTimeout(toastTimerRef.current)
-    setToast({ id: Date.now(), message })
-    toastTimerRef.current = window.setTimeout(() => setToast(null), 3200)
+  // Requiere presionar "Continuar" en vez de autoocultarse: el aviso debe
+  // confirmarse a propósito, no perderse de un vistazo.
+  const notify = useCallback((message, { tone = 'success' } = {}) => {
+    setToast({ id: Date.now(), message, tone })
   }, [])
-
-  useEffect(() => () => window.clearTimeout(toastTimerRef.current), [])
 
   const navigate = (nextPage) => {
     setPage(nextPage)
@@ -985,7 +982,7 @@ function AdminApp({
         return { ...video, assignments, locked }
       }),
     }))
-    notify(`Sección "${sectionName}" eliminada correctamente`)
+    notify(`Sección "${sectionName}" eliminada correctamente`, { tone: 'danger' })
   }
 
   const titles = {
@@ -1073,11 +1070,14 @@ function AdminApp({
 
 function AdminToast({ toast, onDismiss }) {
   if (!toast) return null
+  const isDanger = toast.tone === 'danger'
   return (
-    <div className="admin-toast" key={toast.id} role="status" aria-live="polite">
-      <span className="admin-toast__icon"><CircleCheck size={22} /></span>
-      <strong>{toast.message}</strong>
-      <button type="button" className="admin-toast__close" onClick={onDismiss} aria-label="Cerrar aviso"><X size={15} /></button>
+    <div className="admin-notice-overlay" key={toast.id} role="presentation">
+      <div className={`admin-notice ${isDanger ? 'admin-notice--danger' : ''}`} role="alertdialog" aria-modal="true" aria-live="assertive">
+        <span className="admin-notice__icon">{isDanger ? <Trash2 size={30} /> : <CircleCheck size={30} />}</span>
+        <p>{toast.message}</p>
+        <button type="button" className="primary-button admin-notice__button" onClick={onDismiss} autoFocus>Continuar</button>
+      </div>
     </div>
   )
 }
@@ -1367,7 +1367,7 @@ function VideosManager({ data, setData, persistedVideoIdsRef, onNotify }) {
     const videoTitle = data.videos.find((video) => video.id === id)?.title || 'este video'
     if (!window.confirm(`¿Eliminar “${videoTitle}” de Supabase?`)) return
     setData((current) => ({ ...current, videos: current.videos.filter((video) => video.id !== id) }))
-    onNotify?.(`Video "${videoTitle}" eliminado correctamente`)
+    onNotify?.(`Video "${videoTitle}" eliminado correctamente`, { tone: 'danger' })
   }
   const source = getVideoSource(draft.url)
   const filtered = data.videos.filter((video) => video.title.toLowerCase().includes(query.toLowerCase()))
